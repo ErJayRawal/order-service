@@ -165,24 +165,19 @@ curl.exe -H "Authorization: Bearer $env:ACCESS_TOKEN" `
 Remove-Item Env:ACCESS_TOKEN
 ```
 
-### Deploy an image published by CI
+### Build and deploy manually
 
-For a public GitHub Container Registry package, update the deployment image to the published SHA tag:
+This repository does not use GitHub Actions. Run tests and build the image locally, then deploy it to Docker Desktop Kubernetes:
 
 ```powershell
-kubectl set image deployment/order-service order-service=ghcr.io/<owner>/<repository>:sha-<commit-sha> --namespace order-service
+.\mvnw.cmd verify
+.\mvnw.cmd package -DskipTests
+docker build -f src/main/docker/Dockerfile.jvm -t order-service:local .
+kubectl apply -k k8s
 kubectl rollout status deployment/order-service --namespace order-service
 ```
 
-Use the lowercase GitHub owner/repository and the full commit SHA shown on the Actions run. For a private GHCR package, configure an `imagePullSecret` on the Kubernetes service account before updating the image.
-
-## Free CI and image publishing
-
-`.github/workflows/ci-cd.yml` runs tests on pull requests and pushes to `develop`, `main`, and version tags. Successful pushes to `main` and `v*` tags also build the container image and publish branch, version, and SHA tags to GHCR using the repository-scoped `GITHUB_TOKEN`; no paid registry credentials are required. Docker Hub publishing is separate from this workflow.
-
-GitHub Actions and GHCR have free usage for public repositories/packages. Private repositories and packages are subject to GitHub's included minutes, storage, and bandwidth quotas and may incur charges if those quotas are exceeded; check current GitHub plan limits before relying on them. CI does not deploy to Docker Desktop: GitHub-hosted runners cannot access a developer's local cluster. The documented `kubectl set image` command is the manual deployment step.
-
-For local Docker Hub deployments, build and push your selected tag from a Docker Hub-authenticated machine, then update the Kubernetes Deployment image. Do not put Docker Hub credentials in the repository or image.
+For publishing an image to Docker Hub, authenticate with Docker locally, tag the image for your Docker Hub repository, and push it manually. Never put registry credentials in the repository or image. Git commits and pushes to the GitHub repository remain a separate source-control workflow and do not trigger builds or deployments.
 
 ## Configuration
 
