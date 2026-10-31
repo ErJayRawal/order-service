@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 
 import static io.restassured.RestAssured.given;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.matchesPattern;
 import static org.hamcrest.Matchers.notNullValue;
 
 @QuarkusTest
@@ -76,6 +77,35 @@ class OrderResourceTest {
                 .then()
                 .statusCode(400)
                 .body("code", equalTo("VALIDATION_FAILED"));
+    }
+
+    @Test
+    void acceptsValidCorrelationIdAndReturnsIt() {
+        given()
+                .header("X-Correlation-ID", "checkout-123.abc_def")
+                .when()
+                .get("/api/v1/orders/00000000-0000-0000-0000-000000000001")
+                .then()
+                .statusCode(404)
+                .header("X-Correlation-ID", equalTo("checkout-123.abc_def"));
+    }
+
+    @Test
+    void generatesCorrelationIdWhenMissingOrInvalid() {
+        given()
+                .when()
+                .get("/api/v1/orders/00000000-0000-0000-0000-000000000001")
+                .then()
+                .statusCode(404)
+                .header("X-Correlation-ID", matchesPattern("[0-9a-f-]{36}"));
+
+        given()
+                .header("X-Correlation-ID", "invalid correlation id")
+                .when()
+                .get("/api/v1/orders/00000000-0000-0000-0000-000000000001")
+                .then()
+                .statusCode(404)
+                .header("X-Correlation-ID", matchesPattern("[0-9a-f-]{36}"));
     }
 
     @Test

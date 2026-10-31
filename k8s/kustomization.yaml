@@ -5,3 +5,5 @@ resources:
   - namespace.yaml
   - postgres.yaml
   - order-service.yaml
+  - observability.yaml
+  - alloy.yaml

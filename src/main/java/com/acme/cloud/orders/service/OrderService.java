@@ -12,10 +12,12 @@ import jakarta.transaction.Transactional;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import org.jboss.logging.Logger;
 
 @ApplicationScoped
 public class OrderService {
 
+    private static final Logger LOG = Logger.getLogger(OrderService.class);
     private final OrderRepository orders;
     private final OrderMapper orderMapper;
 
@@ -29,6 +31,7 @@ public class OrderService {
     public OrderResponse create(CreateOrderRequest request) {
         OrderEntity order = orderMapper.toEntity(request, Instant.now());
         orders.persist(order);
+        LOG.infof("Order created id=%s", order.id);
         return orderMapper.toResponse(order);
     }
 
@@ -48,6 +51,7 @@ public class OrderService {
     public OrderResponse cancel(UUID id) {
         OrderEntity order = findOrder(id);
         order.cancel(Instant.now());
+        LOG.infof("Order cancellation processed id=%s status=%s", order.id, order.status);
         return orderMapper.toResponse(order);
     }
 
