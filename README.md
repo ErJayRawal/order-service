@@ -82,7 +82,32 @@ kubectl create secret generic observability-credentials --namespace order-servic
 Remove-Item Env:GRAFANA_ADMIN_PASSWORD
 ```
 
-Configure the OIDC issuer used by your identity provider. This public issuer URL belongs in a ConfigMap, not in a Secret:
+### Local Keycloak identity provider
+
+Keycloak is the identity provider for this local setup: it handles sign-in and token issuance. It runs in development mode with an ephemeral database, stays internal to Kubernetes, and is not suitable for production. The admin password is kept in a local Kubernetes Secret and is not stored in this repository.
+
+Create a strong local admin password, deploy only the Keycloak manifest, and wait for it to become ready:
+
+```powershell
+$env:KEYCLOAK_ADMIN_PASSWORD = Read-Host "Local Keycloak admin password"
+kubectl create secret generic keycloak-admin-credentials --namespace order-service `
+  --from-literal=password=$env:KEYCLOAK_ADMIN_PASSWORD
+Remove-Item Env:KEYCLOAK_ADMIN_PASSWORD
+kubectl apply -f k8s/keycloak.yaml --namespace order-service
+kubectl rollout status deployment/keycloak --namespace order-service
+kubectl port-forward service/keycloak 8180:8080 --namespace order-service
+```
+
+Keep the port-forward open and visit `http://localhost:8180`. Sign in to the Administration Console with username `admin` and the password supplied above. Retrieve the password later from the local Kubernetes Secret if needed:
+
+```powershell
+$encodedPassword = kubectl get secret keycloak-admin-credentials --namespace order-service -o jsonpath='{.data.password}'
+[System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($encodedPassword))
+```
+
+The Keycloak admin console is available only through port-forwarding; the Kubernetes Service is a cluster-internal `ClusterIP`. Keycloak data is ephemeral and will be lost if its pod is recreated. Do not use this dev-mode deployment or its credentials for production.
+
+After creating the `orders` realm in Keycloak, configure the issuer URL exactly as `http://keycloak:8080/realms/orders`. The API pod can reach the cluster-internal Keycloak Service at this address. This public issuer URL belongs in a ConfigMap, not in a Secret:
 
 ```powershell
 $env:OIDC_AUTH_SERVER_URL = Read-Host "OIDC issuer base URL (for example https://identity.example.com/realms/orders)"
@@ -176,4 +201,4 @@ Kubernetes loads the OIDC issuer URL from the `order-service-oidc` ConfigMap. Ne
 
 ## Next increments
 
-Role-based administrative operations, trusted catalog pricing and inventory, idempotency keys, and payment integration are intentionally not part of v1. Kafka with a transactional outbox and Redis cache-aside remain future increments; PostgreSQL remains the source of truth.
+The broader platform roadmap includes Customer, Product, Inventory, Cart, Order, and Payment services. Keycloak remains the identity provider; Customer Service will own customer profiles and map external identities to immutable internal customer IDs. Product Service will own catalog data, Inventory Service will own stock availability, Cart Service will own cart state, Order Service will own order lifecycle, and Payment Service will integrate with payment gateways. These are future phases; this repository currently implements the Order Service and local Keycloak foundation. Kafka with a transactional outbox is a future option for reliable cross-service events, while Redis cache-aside should be introduced when measured traffic justifies it.

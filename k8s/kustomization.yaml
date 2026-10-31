@@ -7,3 +7,4 @@ resources:
   - order-service.yaml
   - observability.yaml
   - alloy.yaml
+  - keycloak.yaml
