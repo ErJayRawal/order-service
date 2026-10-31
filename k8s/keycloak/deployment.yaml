@@ -40,11 +40,33 @@ spec:
         fsGroup: 1000
         seccompProfile:
           type: RuntimeDefault
+      initContainers:
+        - name: wait-for-database
+          image: postgres:16-alpine
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - until pg_isready -h keycloak-postgres -p 5432 -U "$KC_DB_USERNAME"; do sleep 2; done
+          env:
+            - name: KC_DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: keycloak-db-credentials
+                  key: username
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
       containers:
         - name: keycloak
-          image: quay.io/keycloak/keycloak:26.8.1
+          image: keycloak-local:26.8.1
           imagePullPolicy: IfNotPresent
-          args: ["start-dev"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          args: ["start", "--optimized", "--import-realm"]
           ports:
             - name: http
               containerPort: 8080
@@ -58,10 +80,26 @@ spec:
                 secretKeyRef:
                   name: keycloak-admin-credentials
                   key: password
+            - name: KC_DB
+              value: postgres
+            - name: KC_DB_URL
+              value: jdbc:postgresql://keycloak-postgres:5432/keycloak
+            - name: KC_DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: keycloak-db-credentials
+                  key: username
+            - name: KC_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: keycloak-db-credentials
+                  key: password
             - name: KC_HTTP_ENABLED
               value: "true"
+            - name: KC_HOSTNAME
+              value: http://localhost:8180
             - name: KC_HOSTNAME_STRICT
-              value: "false"
+              value: "true"
             - name: KC_HEALTH_ENABLED
               value: "true"
             - name: KC_METRICS_ENABLED
@@ -94,9 +132,16 @@ spec:
               cpu: "2"
               memory: 1536Mi
           volumeMounts:
+            - name: keycloak-realm
+              mountPath: /opt/keycloak/data/import
+              readOnly: true
             - name: keycloak-data
               mountPath: /opt/keycloak/data
+              subPath: data
       volumes:
+        - name: keycloak-realm
+          configMap:
+            name: keycloak-realm
         - name: keycloak-data
-          emptyDir:
-            sizeLimit: 256Mi
+          persistentVolumeClaim:
+            claimName: keycloak-data

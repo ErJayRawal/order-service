@@ -66,6 +66,16 @@ spec:
                 configMapKeyRef:
                   name: order-service-oidc
                   key: auth-server-url
+            - name: OIDC_TOKEN_ISSUER
+              valueFrom:
+                configMapKeyRef:
+                  name: order-service-oidc
+                  key: token-issuer
+            - name: OIDC_JWKS_PATH
+              valueFrom:
+                configMapKeyRef:
+                  name: order-service-oidc
+                  key: jwks-path
             - name: QUARKUS_OTEL_TRACES_EXPORTER
               value: otlp
             - name: QUARKUS_OTEL_EXPORTER_OTLP_ENDPOINT

@@ -84,40 +84,60 @@ Remove-Item Env:GRAFANA_ADMIN_PASSWORD
 
 ### Local Keycloak identity provider
 
-Keycloak is the identity provider for this local setup: it handles sign-in and token issuance. It runs in development mode with an ephemeral database, stays internal to Kubernetes, and is not suitable for production. The admin password is kept in a local Kubernetes Secret and is not stored in this repository.
+Keycloak is the identity provider: it handles sign-in and token issuance. The local deployment runs Keycloak in production mode against a dedicated PostgreSQL StatefulSet, with persistent volumes for both Keycloak and its database. It imports the `orders` realm, a development-only public client, and a bearer-only `order-service` API resource client from version-controlled configuration. A protocol mapper adds the API resource client as the access-token audience. Admin and database credentials are local Kubernetes Secrets; do not commit them. The cluster remains single-node, so the volumes protect against pod replacement, not node or disk failure.
 
-Create a strong local admin password, deploy only the Keycloak manifest, and wait for it to become ready:
+The local cluster already has `keycloak-admin-credentials` and `keycloak-db-credentials`; preserve these Secrets and do not overwrite or rotate them without changing the corresponding Keycloak/PostgreSQL credentials. For a fresh namespace, create them once before deployment. This generates a strong database password locally and passes it through a temporary file rather than putting it in the command line or repository:
 
 ```powershell
-$env:KEYCLOAK_ADMIN_PASSWORD = Read-Host "Local Keycloak admin password"
-kubectl create secret generic keycloak-admin-credentials --namespace order-service `
-  --from-literal=password=$env:KEYCLOAK_ADMIN_PASSWORD
-Remove-Item Env:KEYCLOAK_ADMIN_PASSWORD
-kubectl apply -f k8s/keycloak.yaml --namespace order-service
+$adminPassword = Read-Host "Local Keycloak admin password"
+$adminFile = [System.IO.Path]::GetTempFileName()
+$dbFile = [System.IO.Path]::GetTempFileName()
+try {
+  kubectl create secret generic keycloak-admin-credentials --namespace order-service `
+    --from-file=password=$adminFile
+
+  $bytes = New-Object byte[] 32
+  [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
+  [System.IO.File]::WriteAllText($dbFile, [Convert]::ToBase64String($bytes))
+  kubectl create secret generic keycloak-db-credentials --namespace order-service `
+    --from-literal=username=keycloak --from-file=password=$dbFile
+}
+finally {
+  Remove-Item $adminFile, $dbFile -ErrorAction SilentlyContinue
+  $adminPassword = $null
+  $bytes = $null
+}
+```
+
+Build both application images and run the test suite. Deploy Keycloak separately first so it is ready before the secured Order Service starts:
+
+```powershell
+.\mvnw.cmd verify
+docker build -f src/main/docker/Dockerfile.jvm -t order-service:local .
+docker build -f k8s/keycloak/Dockerfile -t keycloak-local:26.8.1 k8s/keycloak
+kubectl apply -k k8s/keycloak
+kubectl rollout status statefulset/keycloak-postgres --namespace order-service
 kubectl rollout status deployment/keycloak --namespace order-service
 kubectl port-forward service/keycloak 8180:8080 --namespace order-service
 ```
 
-Keep the port-forward open and visit `http://localhost:8180`. Sign in to the Administration Console with username `admin` and the password supplied above. Retrieve the password later from the local Kubernetes Secret if needed:
+Keep the port-forward open and visit `http://localhost:8180`. Sign in to the Administration Console as `admin`. The realm import creates `orders`, the `order-service-local` development client, the `order-service` bearer-only API resource client, and an audience mapper that adds `order-service` to access-token audiences. Direct password grants are enabled on this local-only test client for command-line integration testing; use Authorization Code with PKCE for interactive clients, and do not enable password grants for production clients. Create test users in the `orders` realm; never use the Keycloak bootstrap admin as an application user. Keycloak's realm import does not reconcile an already-existing realm; make later changes to persisted realms through the Admin Console or Admin REST API, and keep `realm.json` aligned for fresh deployments. Verify the discovery document before deploying the API:
 
 ```powershell
-$encodedPassword = kubectl get secret keycloak-admin-credentials --namespace order-service -o jsonpath='{.data.password}'
-[System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($encodedPassword))
+$metadata = Invoke-RestMethod http://localhost:8180/realms/orders/.well-known/openid-configuration
+$metadata.issuer
 ```
 
-The Keycloak admin console is available only through port-forwarding; the Kubernetes Service is a cluster-internal `ClusterIP`. Keycloak data is ephemeral and will be lost if its pod is recreated. Do not use this dev-mode deployment or its credentials for production.
-
-After creating the `orders` realm in Keycloak, configure the issuer URL exactly as `http://keycloak:8080/realms/orders`. The API pod can reach the cluster-internal Keycloak Service at this address. This public issuer URL belongs in a ConfigMap, not in a Secret:
+The issuer must be `http://localhost:8180/realms/orders`. The application uses the cluster-internal Keycloak service for discovery/JWKS requests while validating that external issuer value. After Keycloak is ready, apply the full stack and wait for the service rollout:
 
 ```powershell
-$env:OIDC_AUTH_SERVER_URL = Read-Host "OIDC issuer base URL (for example https://identity.example.com/realms/orders)"
-kubectl create configmap order-service-oidc --namespace order-service `
-  --from-literal=auth-server-url=$env:OIDC_AUTH_SERVER_URL `
-  --dry-run=client -o yaml | kubectl apply -f -
-Remove-Item Env:OIDC_AUTH_SERVER_URL
+kubectl apply -k k8s
+kubectl rollout status deployment/order-service --namespace order-service
 ```
 
-The identity provider must issue signed JWT access tokens with the configured audience (`order-service`) and a stable, non-empty `sub` claim no longer than 128 characters. Configure that audience in the provider's API/resource settings. The service validates tokens using the provider's OIDC discovery/JWKS endpoints. Ensure the Kubernetes cluster can reach the issuer URL.
+The Keycloak admin console is available only through port-forwarding; its Kubernetes Service is a cluster-internal `ClusterIP`. Realm state lives in PostgreSQL and Keycloak data has its own PVC. Back up both before deleting or replacing claims. This is a production-mode application configuration for local development, not a highly available production identity deployment; production also requires TLS, managed secrets, backups, monitoring, and multi-node capacity.
+
+Do not delete the `keycloak-data` or `keycloak-postgres-data-keycloak-postgres-0` PVCs to restart Keycloak: both contain persistent identity data. This deployment is production-mode configuration intended for a single-node local cluster, but it does not provide production HA or node-failure protection.
 
 Build the image into Docker Desktop's local image store and deploy the manifests:
 
@@ -187,6 +207,8 @@ For publishing an image to Docker Hub, authenticate with Docker locally, tag the
 | `QUARKUS_DATASOURCE_USERNAME` | Database user | Required for production |
 | `QUARKUS_DATASOURCE_PASSWORD` | Database password | Required for production |
 | `OIDC_AUTH_SERVER_URL` | OIDC issuer/discovery URL | Required in production |
+| `OIDC_TOKEN_ISSUER` | Expected issuer claim, distinct from the internal discovery URL when needed | Defaults to the internal Keycloak URL |
+| `OIDC_JWKS_PATH` | JWKS endpoint relative to the OIDC realm URL | `/protocol/openid-connect/certs` |
 | `OIDC_AUDIENCE` | Required access-token audience | `order-service` |
 | `QUARKUS_OTEL_TRACES_EXPORTER` | Trace exporter | `none` locally unless configured; `otlp` in Kubernetes |
 | `QUARKUS_OTEL_EXPORTER_OTLP_ENDPOINT` | OpenTelemetry Collector endpoint | `http://localhost:4317`; Kubernetes uses the `observability` service |

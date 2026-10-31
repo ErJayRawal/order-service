@@ -7,4 +7,10 @@ resources:
   - order-service.yaml
   - observability.yaml
   - alloy.yaml
-  - keycloak.yaml
+  - keycloak/
+configMapGenerator:
+  - name: order-service-oidc
+    literals:
+      - auth-server-url=http://keycloak:8080/realms/orders
+      - token-issuer=http://localhost:8180/realms/orders
+      - jwks-path=/protocol/openid-connect/certs
