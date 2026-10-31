@@ -16,10 +16,10 @@ import java.util.UUID;
 @ApplicationScoped
 public class OrderMapper {
 
-    public OrderEntity toEntity(CreateOrderRequest request, Instant createdAt) {
+    public OrderEntity toEntity(CreateOrderRequest request, String customerId, Instant createdAt) {
         OrderEntity order = new OrderEntity();
         order.id = UUID.randomUUID();
-        order.customerId = request.customerId();
+        order.customerId = customerId;
         order.currency = request.currency();
         order.status = OrderStatus.PENDING;
         order.total = BigDecimal.ZERO;

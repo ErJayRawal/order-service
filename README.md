@@ -31,7 +31,6 @@ Example request:
 
 ```json
 {
-  "customerId": "customer-123",
   "currency": "USD",
   "items": [
     { "productId": "product-456", "quantity": 2, "unitPrice": 19.99 }
@@ -39,7 +38,7 @@ Example request:
 }
 ```
 
-The service validates request fields and persists each order and its items in one transaction. API documentation is available at `/q/swagger-ui`; health checks are under `/q/health`, and Prometheus metrics are at `/q/metrics`.
+The service validates request fields and persists each order and its items in one transaction. Order endpoints require an OIDC bearer token. The service uses the verified token subject (`sub`) as the customer ID; callers cannot select another customer in the request body. Reads, lists, and cancellations are scoped to that subject, and an order owned by another subject is reported as not found. API documentation is available at `/q/swagger-ui`; health checks are under `/q/health`, and Prometheus metrics are at `/q/metrics`.
 
 ## Run and test locally
 
@@ -56,6 +55,8 @@ The development API listens on `http://localhost:8080`. To package a JVM applica
 .\mvnw.cmd package -DskipTests
 docker build -f src/main/docker/Dockerfile.jvm -t order-service:local .
 ```
+
+Runtime API requests in dev mode also require a token from a trusted OIDC issuer; set `OIDC_AUTH_SERVER_URL` to that issuer before starting Quarkus. The test profile disables OIDC discovery and uses test identities, so the test suite does not require an identity provider.
 
 ## Deploy to Docker Desktop Kubernetes
 
@@ -80,6 +81,18 @@ kubectl create secret generic observability-credentials --namespace order-servic
   --from-literal=grafana-admin-password=$env:GRAFANA_ADMIN_PASSWORD
 Remove-Item Env:GRAFANA_ADMIN_PASSWORD
 ```
+
+Configure the OIDC issuer used by your identity provider. This public issuer URL belongs in a ConfigMap, not in a Secret:
+
+```powershell
+$env:OIDC_AUTH_SERVER_URL = Read-Host "OIDC issuer base URL (for example https://identity.example.com/realms/orders)"
+kubectl create configmap order-service-oidc --namespace order-service `
+  --from-literal=auth-server-url=$env:OIDC_AUTH_SERVER_URL `
+  --dry-run=client -o yaml | kubectl apply -f -
+Remove-Item Env:OIDC_AUTH_SERVER_URL
+```
+
+The identity provider must issue signed JWT access tokens with the configured audience (`order-service`) and a stable, non-empty `sub` claim no longer than 128 characters. Configure that audience in the provider's API/resource settings. The service validates tokens using the provider's OIDC discovery/JWKS endpoints. Ensure the Kubernetes cluster can reach the issuer URL.
 
 Build the image into Docker Desktop's local image store and deploy the manifests:
 
@@ -114,7 +127,18 @@ $encodedPassword = kubectl get secret observability-credentials --namespace orde
 
 Every HTTP response includes `X-Correlation-ID`. A valid caller-provided value containing 1-64 letters, digits, dots, underscores, or hyphens is propagated; missing or invalid values are replaced with a generated UUID. Application JSON logs include correlation and active trace/span identifiers in MDC when available. Correlation IDs identify a request across services, while trace IDs identify the distributed trace; they are separate identifiers.
 
-The service is only exposed as a cluster-internal `ClusterIP`; port-forwarding is the local access path. **V1 has no authentication or authorization. Do not expose it to an untrusted network.** Prices are accepted from the caller until a trusted catalog/pricing integration is added.
+The service is only exposed as a cluster-internal `ClusterIP`; port-forwarding is the local access path. Kubernetes readiness and liveness endpoints remain available to probes, and Prometheus can scrape the cluster-internal metrics endpoint. Prices are accepted from the caller until a trusted catalog/pricing integration is added.
+
+To call the API, provide an access token from the configured OIDC provider:
+
+```powershell
+$env:ACCESS_TOKEN = Read-Host "OIDC access token"
+curl.exe -H "Authorization: Bearer $env:ACCESS_TOKEN" `
+  -H "Content-Type: application/json" `
+  -d '{"currency":"USD","items":[{"productId":"product-456","quantity":2,"unitPrice":19.99}]}' `
+  http://localhost:8080/api/v1/orders
+Remove-Item Env:ACCESS_TOKEN
+```
 
 ### Deploy an image published by CI
 
@@ -142,12 +166,14 @@ For local Docker Hub deployments, build and push your selected tag from a Docker
 | `QUARKUS_DATASOURCE_JDBC_URL` | PostgreSQL JDBC URL | Required for production; Dev Services in dev/test |
 | `QUARKUS_DATASOURCE_USERNAME` | Database user | Required for production |
 | `QUARKUS_DATASOURCE_PASSWORD` | Database password | Required for production |
+| `OIDC_AUTH_SERVER_URL` | OIDC issuer/discovery URL | Required in production |
+| `OIDC_AUDIENCE` | Required access-token audience | `order-service` |
 | `QUARKUS_OTEL_TRACES_EXPORTER` | Trace exporter | `none` locally unless configured; `otlp` in Kubernetes |
 | `QUARKUS_OTEL_EXPORTER_OTLP_ENDPOINT` | OpenTelemetry Collector endpoint | `http://localhost:4317`; Kubernetes uses the `observability` service |
 | `QUARKUS_OTEL_TRACES_SAMPLER_ARG` | Trace sampling ratio | `0.1`; local Kubernetes sets `1.0` |
 
-The Kubernetes manifests set the connection URL from a ConfigMap and credentials from the Secret. Do not expose the unauthenticated API publicly.
+Kubernetes loads the OIDC issuer URL from the `order-service-oidc` ConfigMap. Never disable token validation or use a permissive audience in production. Continue to restrict external exposure and use TLS at the ingress/load balancer.
 
 ## Next increments
 
-Customer authentication/authorization, trusted catalog pricing and inventory, idempotency keys, and payment integration are intentionally not part of v1. Add these before exposing order creation to real customers. Kafka with a transactional outbox and Redis cache-aside remain future increments; PostgreSQL remains the source of truth.
+Role-based administrative operations, trusted catalog pricing and inventory, idempotency keys, and payment integration are intentionally not part of v1. Kafka with a transactional outbox and Redis cache-aside remain future increments; PostgreSQL remains the source of truth.

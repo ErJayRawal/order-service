@@ -28,34 +28,34 @@ public class OrderService {
     }
 
     @Transactional
-    public OrderResponse create(CreateOrderRequest request) {
-        OrderEntity order = orderMapper.toEntity(request, Instant.now());
+    public OrderResponse create(CreateOrderRequest request, String customerId) {
+        OrderEntity order = orderMapper.toEntity(request, customerId, Instant.now());
         orders.persist(order);
         LOG.infof("Order created id=%s", order.id);
         return orderMapper.toResponse(order);
     }
 
     @Transactional
-    public OrderResponse get(UUID id) {
-        return orderMapper.toResponse(findOrder(id));
+    public OrderResponse get(UUID id, String customerId) {
+        return orderMapper.toResponse(findOrder(id, customerId));
     }
 
     @Transactional
-    public List<OrderResponse> list(int page, int size) {
-        return orders.findPage(page, size).stream()
+    public List<OrderResponse> list(String customerId, int page, int size) {
+        return orders.findPageForCustomer(customerId, page, size).stream()
                 .map(orderMapper::toResponse)
                 .toList();
     }
 
     @Transactional
-    public OrderResponse cancel(UUID id) {
-        OrderEntity order = findOrder(id);
+    public OrderResponse cancel(UUID id, String customerId) {
+        OrderEntity order = findOrder(id, customerId);
         order.cancel(Instant.now());
         LOG.infof("Order cancellation processed id=%s status=%s", order.id, order.status);
         return orderMapper.toResponse(order);
     }
 
-    private OrderEntity findOrder(UUID id) {
-        return orders.findByIdOptional(id).orElseThrow(() -> new OrderNotFoundException(id));
+    private OrderEntity findOrder(UUID id, String customerId) {
+        return orders.findOwnedById(id, customerId).orElseThrow(() -> new OrderNotFoundException(id));
     }
 }

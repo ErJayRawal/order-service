@@ -61,6 +61,11 @@ spec:
                 secretKeyRef:
                   name: order-db-credentials
                   key: password
+            - name: OIDC_AUTH_SERVER_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: order-service-oidc
+                  key: auth-server-url
             - name: QUARKUS_OTEL_TRACES_EXPORTER
               value: otlp
             - name: QUARKUS_OTEL_EXPORTER_OTLP_ENDPOINT
