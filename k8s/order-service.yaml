@@ -34,8 +34,8 @@ spec:
       terminationGracePeriodSeconds: 30
       securityContext:
         runAsNonRoot: true
-        runAsUser: 10001
-        runAsGroup: 10001
+        runAsUser: 185
+        runAsGroup: 185
         seccompProfile:
           type: RuntimeDefault
       containers:
