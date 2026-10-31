@@ -1,0 +1,15 @@
+.git
+.github
+.idea
+.mvn
+src
+target/**
+!target/quarkus-app/
+target/quarkus-app/*
+!target/quarkus-app/*.jar
+!target/quarkus-app/lib/
+!target/quarkus-app/lib/**
+!target/quarkus-app/app/
+!target/quarkus-app/app/**
+!target/quarkus-app/quarkus/
+!target/quarkus-app/quarkus/**
