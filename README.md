@@ -2,6 +2,22 @@
 
 A Quarkus REST service for creating, viewing, listing, and cancelling orders. PostgreSQL stores orders and line items; Flyway applies schema migrations. The API accepts caller-provided unit prices in v1, and calculates line and order totals using decimal arithmetic.
 
+## Application structure
+
+Order code is organized by responsibility under `com.acme.cloud.orders`:
+
+| Package | Responsibility |
+|---|---|
+| `api` | REST resource and HTTP contract |
+| `dto` | Request, response, and API error DTOs |
+| `service` | Transactional order use cases |
+| `repository` | Persistence access and order queries |
+| `entity` | JPA entities and order status |
+| `mapper` | Request-to-entity and entity-to-response conversions |
+| `exception` | Domain exceptions and HTTP exception mappers |
+
+The resource delegates to the service, which coordinates repository operations and the mapper. The order entity owns its pending-to-cancelled state transition. This keeps HTTP, persistence, conversion, and use-case responsibilities separate without adding an unnecessary general-purpose pattern framework.
+
 ## API
 
 | Method | Path | Purpose |

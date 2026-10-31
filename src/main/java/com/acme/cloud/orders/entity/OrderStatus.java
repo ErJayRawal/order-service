@@ -1,4 +1,4 @@
-package com.acme.cloud.orders;
+package com.acme.cloud.orders.entity;
 
 public enum OrderStatus {
     PENDING,

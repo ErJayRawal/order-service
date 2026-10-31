@@ -1,4 +1,4 @@
-package com.acme.cloud.orders;
+package com.acme.cloud.orders.dto;
 
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Digits;

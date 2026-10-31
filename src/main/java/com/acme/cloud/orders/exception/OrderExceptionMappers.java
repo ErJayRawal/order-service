@@ -1,5 +1,6 @@
-package com.acme.cloud.orders;
+package com.acme.cloud.orders.exception;
 
+import com.acme.cloud.orders.dto.ApiError;
 import jakarta.validation.ConstraintViolationException;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.ext.ExceptionMapper;

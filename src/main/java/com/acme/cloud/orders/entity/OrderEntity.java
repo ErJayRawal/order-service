@@ -1,6 +1,5 @@
-package com.acme.cloud.orders;
+package com.acme.cloud.orders.entity;
 
-import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -19,7 +18,7 @@ import java.util.UUID;
 
 @Entity
 @Table(name = "orders")
-public class OrderEntity extends PanacheEntityBase {
+public class OrderEntity {
 
     @Id
     public UUID id;
@@ -50,4 +49,11 @@ public class OrderEntity extends PanacheEntityBase {
     @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("lineNumber")
     public List<OrderItemEntity> items = new ArrayList<>();
+
+    public void cancel(Instant cancelledAt) {
+        if (status == OrderStatus.PENDING) {
+            status = OrderStatus.CANCELLED;
+            updatedAt = cancelledAt;
+        }
+    }
 }

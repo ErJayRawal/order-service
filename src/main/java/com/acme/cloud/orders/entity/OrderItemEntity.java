@@ -1,6 +1,5 @@
-package com.acme.cloud.orders;
+package com.acme.cloud.orders.entity;
 
-import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
@@ -13,7 +12,7 @@ import java.util.UUID;
 
 @Entity
 @Table(name = "order_items")
-public class OrderItemEntity extends PanacheEntityBase {
+public class OrderItemEntity {
 
     @Id
     public UUID id;
