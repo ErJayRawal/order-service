@@ -24,6 +24,17 @@
           }
         },
         {
+          "name": "customer-service-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "customer-service",
+            "access.token.claim": "true",
+            "id.token.claim": "false"
+          }
+        },
+        {
           "name": "subject",
           "protocol": "openid-connect",
           "protocolMapper": "oidc-sub-mapper",
@@ -39,6 +50,16 @@
     {
       "clientId": "order-service",
       "name": "Order Service API",
+      "enabled": true,
+      "bearerOnly": true,
+      "publicClient": false,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false
+    },
+    {
+      "clientId": "customer-service",
+      "name": "Customer Service API",
       "enabled": true,
       "bearerOnly": true,
       "publicClient": false,

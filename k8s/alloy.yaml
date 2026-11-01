@@ -10,7 +10,7 @@ data:
     discovery.kubernetes "order_service" {
       role = "pod"
       namespaces {
-        names = ["order-service"]
+        names = ["e-commerce-platform"]
       }
     }
 
@@ -77,7 +77,7 @@ metadata:
 subjects:
   - kind: ServiceAccount
     name: alloy
-    namespace: order-service
+    namespace: e-commerce-platform
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role

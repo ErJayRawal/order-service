@@ -66,8 +66,8 @@ Create a namespace and a local Kubernetes Secret. Set `ORDER_DB_PASSWORD` to a s
 
 ```powershell
 $env:ORDER_DB_PASSWORD = Read-Host "Database password"
-kubectl create namespace order-service
-kubectl create secret generic order-db-credentials --namespace order-service `
+kubectl create namespace e-commerce-platform --dry-run=client -o yaml | kubectl apply -f -
+kubectl create secret generic order-db-credentials --namespace e-commerce-platform `
   --from-literal=username=order_service `
   --from-literal=password="$env:ORDER_DB_PASSWORD"
 Remove-Item Env:ORDER_DB_PASSWORD
@@ -77,14 +77,14 @@ Set a separate local Grafana administrator password and create its Kubernetes Se
 
 ```powershell
 $env:GRAFANA_ADMIN_PASSWORD = Read-Host "Grafana admin password"
-kubectl create secret generic observability-credentials --namespace order-service `
+kubectl create secret generic observability-credentials --namespace e-commerce-platform `
   --from-literal=grafana-admin-password=$env:GRAFANA_ADMIN_PASSWORD
 Remove-Item Env:GRAFANA_ADMIN_PASSWORD
 ```
 
 ### Local Keycloak identity provider
 
-Keycloak is the identity provider: it handles sign-in and token issuance. The local deployment runs Keycloak in production mode against a dedicated PostgreSQL StatefulSet, with persistent volumes for both Keycloak and its database. It imports the `orders` realm, a development-only public client, and a bearer-only `order-service` API resource client from version-controlled configuration. A protocol mapper adds the API resource client as the access-token audience. Admin and database credentials are local Kubernetes Secrets; do not commit them. The cluster remains single-node, so the volumes protect against pod replacement, not node or disk failure.
+Keycloak is the identity provider: it handles sign-in and token issuance. The local deployment runs Keycloak in production mode against a dedicated PostgreSQL StatefulSet, with persistent volumes for both Keycloak and its database. It imports the `orders` realm, a development-only public client, and bearer-only `order-service` and `customer-service` API resource clients from version-controlled configuration. Protocol mappers add the API audiences to local development access tokens. Admin and database credentials are local Kubernetes Secrets; do not commit them. The cluster remains single-node, so the volumes protect against pod replacement, not node or disk failure.
 
 The local cluster already has `keycloak-admin-credentials` and `keycloak-db-credentials`; preserve these Secrets and do not overwrite or rotate them without changing the corresponding Keycloak/PostgreSQL credentials. For a fresh namespace, create them once before deployment. This generates a strong database password locally and passes it through a temporary file rather than putting it in the command line or repository:
 
@@ -93,13 +93,13 @@ $adminPassword = Read-Host "Local Keycloak admin password"
 $adminFile = [System.IO.Path]::GetTempFileName()
 $dbFile = [System.IO.Path]::GetTempFileName()
 try {
-  kubectl create secret generic keycloak-admin-credentials --namespace order-service `
+  kubectl create secret generic keycloak-admin-credentials --namespace e-commerce-platform `
     --from-file=password=$adminFile
 
   $bytes = New-Object byte[] 32
   [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
   [System.IO.File]::WriteAllText($dbFile, [Convert]::ToBase64String($bytes))
-  kubectl create secret generic keycloak-db-credentials --namespace order-service `
+  kubectl create secret generic keycloak-db-credentials --namespace e-commerce-platform `
     --from-literal=username=keycloak --from-file=password=$dbFile
 }
 finally {
@@ -116,12 +116,12 @@ Build both application images and run the test suite. Deploy Keycloak separately
 docker build -f src/main/docker/Dockerfile.jvm -t order-service:local .
 docker build -f k8s/keycloak/Dockerfile -t keycloak-local:26.8.1 k8s/keycloak
 kubectl apply -k k8s/keycloak
-kubectl rollout status statefulset/keycloak-postgres --namespace order-service
-kubectl rollout status deployment/keycloak --namespace order-service
-kubectl port-forward service/keycloak 8180:8080 --namespace order-service
+kubectl rollout status statefulset/keycloak-postgres --namespace e-commerce-platform
+kubectl rollout status deployment/keycloak --namespace e-commerce-platform
+kubectl port-forward service/keycloak 8180:8080 --namespace e-commerce-platform
 ```
 
-Keep the port-forward open and visit `http://localhost:8180`. Sign in to the Administration Console as `admin`. The realm import creates `orders`, the `order-service-local` development client, the `order-service` bearer-only API resource client, and an audience mapper that adds `order-service` to access-token audiences. Direct password grants are enabled on this local-only test client for command-line integration testing; use Authorization Code with PKCE for interactive clients, and do not enable password grants for production clients. Create test users in the `orders` realm; never use the Keycloak bootstrap admin as an application user. Keycloak's realm import does not reconcile an already-existing realm; make later changes to persisted realms through the Admin Console or Admin REST API, and keep `realm.json` aligned for fresh deployments. Verify the discovery document before deploying the API:
+Keep the port-forward open and visit `http://localhost:8180`. Sign in to the Administration Console as `admin`. The realm import creates `orders`, the `order-service-local` development client, bearer-only `order-service` and `customer-service` API resource clients, and audience mappers that add both API audiences to local development access tokens. Direct password grants are enabled on this local-only test client for command-line integration testing; use Authorization Code with PKCE for interactive clients, and do not enable password grants for production clients. Create test users in the `orders` realm; never use the Keycloak bootstrap admin as an application user. Keycloak's realm import does not reconcile an already-existing realm; make later changes to persisted realms through the Admin Console or Admin REST API, and keep `realm.json` aligned for fresh deployments. Verify the discovery document before deploying the API:
 
 ```powershell
 $metadata = Invoke-RestMethod http://localhost:8180/realms/orders/.well-known/openid-configuration
@@ -132,7 +132,7 @@ The issuer must be `http://localhost:8180/realms/orders`. The application uses t
 
 ```powershell
 kubectl apply -k k8s
-kubectl rollout status deployment/order-service --namespace order-service
+kubectl rollout status deployment/order-service --namespace e-commerce-platform
 ```
 
 The Keycloak admin console is available only through port-forwarding; its Kubernetes Service is a cluster-internal `ClusterIP`. Realm state lives in PostgreSQL and Keycloak data has its own PVC. Back up both before deleting or replacing claims. This is a production-mode application configuration for local development, not a highly available production identity deployment; production also requires TLS, managed secrets, backups, monitoring, and multi-node capacity.
@@ -145,8 +145,8 @@ Build the image into Docker Desktop's local image store and deploy the manifests
 .\mvnw.cmd package -DskipTests
 docker build -f src/main/docker/Dockerfile.jvm -t order-service:local .
 kubectl apply -k k8s
-kubectl rollout status deployment/order-service --namespace order-service
-kubectl port-forward service/order-service 8080:80 --namespace order-service
+kubectl rollout status deployment/order-service --namespace e-commerce-platform
+kubectl port-forward service/order-service 8080:80 --namespace e-commerce-platform
 ```
 
 The API is then available at `http://localhost:8080`. Keep the port-forward terminal open. PostgreSQL data is stored in the `postgres-data` PVC; deleting that claim deletes local order data. Back up persistent data before replacing or removing the claim.
@@ -158,7 +158,7 @@ The local Kubernetes manifests also deploy Grafana's LGTM development image (Ope
 Open another terminal and forward Grafana's port:
 
 ```powershell
-kubectl port-forward service/observability 3000:3000 --namespace order-service
+kubectl port-forward service/observability 3000:3000 --namespace e-commerce-platform
 ```
 
 Visit `http://localhost:3000` and sign in as `admin` using the password stored in `observability-credentials`. The Grafana service and OTLP receiver remain cluster-internal; use port-forwarding for local access. The order service exports sampled traces to the collector, Prometheus scrapes `/q/metrics`, and Alloy tails only order-service pod logs through namespace-scoped Kubernetes permissions. In Grafana Explore, select Loki and query `{service_name="order-service"}`; select Tempo for traces or Prometheus for metrics.
@@ -166,7 +166,7 @@ Visit `http://localhost:3000` and sign in as `admin` using the password stored i
 To retrieve the generated Grafana password locally when needed:
 
 ```powershell
-$encodedPassword = kubectl get secret observability-credentials --namespace order-service -o jsonpath='{.data.grafana-admin-password}'
+$encodedPassword = kubectl get secret observability-credentials --namespace e-commerce-platform -o jsonpath='{.data.grafana-admin-password}'
 [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($encodedPassword))
 ```
 
@@ -177,12 +177,56 @@ The service is only exposed as a cluster-internal `ClusterIP`; port-forwarding i
 To call the API, provide an access token from the configured OIDC provider:
 
 ```powershell
-$env:ACCESS_TOKEN = Read-Host "OIDC access token"
-curl.exe -H "Authorization: Bearer $env:ACCESS_TOKEN" `
+kubectl port-forward service/keycloak 8180:8080 --namespace e-commerce-platform
+# In a second terminal:
+kubectl port-forward service/order-service 8080:80 --namespace e-commerce-platform
+```
+
+For the local Keycloak client, request a development token with the Resource Owner Password Credentials grant. This grant is enabled only on `order-service-local` for local testing; production interactive clients should use Authorization Code with PKCE.
+
+```powershell
+$username = Read-Host "Orders realm username"
+$password = Read-Host "Orders realm password"
+$tokenResponse = Invoke-RestMethod `
+  -Method Post `
+  -Uri "http://localhost:8180/realms/orders/protocol/openid-connect/token" `
+  -ContentType "application/x-www-form-urlencoded" `
+  -Body @{
+    grant_type = "password"
+    client_id = "order-service-local"
+    username = $username
+    password = $password
+    scope = "openid"
+  }
+$env:ACCESS_TOKEN = $tokenResponse.access_token
+```
+
+The Swagger UI is at `http://localhost:8080/q/swagger-ui/` while the Order Service port-forward is running. You can also call the API directly with `curl.exe`:
+
+```powershell
+curl.exe -i -H "Authorization: Bearer $env:ACCESS_TOKEN" `
+  "http://localhost:8080/api/v1/orders?page=0&size=20"
+
+$body = '{"currency":"USD","items":[{"productId":"product-456","quantity":2,"unitPrice":19.99}]}'
+curl.exe -i -X POST "http://localhost:8080/api/v1/orders" `
+  -H "Authorization: Bearer $env:ACCESS_TOKEN" `
   -H "Content-Type: application/json" `
-  -d '{"currency":"USD","items":[{"productId":"product-456","quantity":2,"unitPrice":19.99}]}' `
-  http://localhost:8080/api/v1/orders
+  --data-raw $body
+
+# Substitute the id returned by the create call:
+$orderId = Read-Host "Order id"
+curl.exe -i -H "Authorization: Bearer $env:ACCESS_TOKEN" `
+  "http://localhost:8080/api/v1/orders/$orderId"
+curl.exe -i -X POST -H "Authorization: Bearer $env:ACCESS_TOKEN" `
+  "http://localhost:8080/api/v1/orders/$orderId/cancel"
+
 Remove-Item Env:ACCESS_TOKEN
+```
+
+To run the end-to-end OIDC smoke test against the local Kubernetes deployment, keep both port-forwards above running and execute the script from the Order Service repository root. It reads the local Keycloak admin credential from the Kubernetes Secret, creates uniquely named temporary test identities/clients, exercises authentication, audience, order ownership, and request-body ownership checks, then removes those temporary resources:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\integration\OrderService-OidcSmokeTest.ps1
 ```
 
 ### Build and deploy manually
@@ -194,7 +238,7 @@ This repository does not use GitHub Actions. Run tests and build the image local
 .\mvnw.cmd package -DskipTests
 docker build -f src/main/docker/Dockerfile.jvm -t order-service:local .
 kubectl apply -k k8s
-kubectl rollout status deployment/order-service --namespace order-service
+kubectl rollout status deployment/order-service --namespace e-commerce-platform
 ```
 
 For publishing an image to Docker Hub, authenticate with Docker locally, tag the image for your Docker Hub repository, and push it manually. Never put registry credentials in the repository or image. Git commits and pushes to the GitHub repository remain a separate source-control workflow and do not trigger builds or deployments.
